@@ -11,7 +11,26 @@ static BLEUUID FRI3D_SERVICE_UUID("ea5c0c62-079e-11ee-be56-0242ac120002");
 static BLEUUID   FRI3D_COLOR_UUID("086aece6-079f-11ee-be56-0242ac120002");
 static BLEUUID    FRI3D_PUSH_UUID("3ed75c2e-079f-11ee-be56-0242ac120002");
 
+BLEAdvertisedDevice *closestBeacon;
+int closestRSSI = -1000;
+String scanDone = "SCAN COMPLETE CHECK SERIAL MONITOR";
+
 class AgentAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
+  private:
+    void FindClosestBeacon(BLEAdvertisedDevice advertisedDevice)
+    {
+      if (advertisedDevice.getRSSI() > closestRSSI) {
+        closestBeacon = new BLEAdvertisedDevice(advertisedDevice);
+        closestRSSI = advertisedDevice.getRSSI();
+      }
+      else {
+        Serial.print("discarded Beacon RSSI ");
+        Serial.print(advertisedDevice.getRSSI());
+        Serial.print(" < ");
+        Serial.print(closestRSSI);
+      }
+    }
+  public:
  /**
    * Called for each advertising BLE server.
    */
@@ -19,21 +38,28 @@ class AgentAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
     Serial.print("BLE found: ");
     Serial.print(advertisedDevice.toString().c_str());
     Serial.print(" = ");
-    if (advertisedDevice.haveName()) Serial.println(advertisedDevice.getName().c_str());
+    if (advertisedDevice.haveName()) 
+    {
+      Serial.println(advertisedDevice.getName().c_str());
+      if (advertisedDevice.getName().find("Fri3dBaconAdvertised") != std::string::npos) {
+        scanDone = "NAME FOUND";
+        FindClosestBeacon(advertisedDevice);
+      }
+    }
     else Serial.println("<noname>");
 
     if (advertisedDevice.haveServiceUUID() && advertisedDevice.isAdvertisingService(FRI3D_SERVICE_UUID))
     {
+      scanDone = "SERVICE UUID FOUND";
       Serial.println("GOTCHA!");
+      FindClosestBeacon(advertisedDevice);
     }
 
   }
 };
 
 void init_bluetooth() {
-  BLEDevice::init("");
-
-
+  BLEDevice::init("WOLFri3d");
 }
 
 void setup() {
@@ -41,10 +67,46 @@ void setup() {
   Serial.println("Code for Ingress agent on Fri3d Badge 2018 (wolf)");
   
   init_bluetooth();
-  for (int i=0; i<20; ++i)
-  {
-    matrix.setPixel( rand() % 14, rand() % 5, 1 );
+}
+
+bool ConnectToBeacon()
+{
+  Serial.println("attempting to connect...");
+  BLEClient*  pClient  = BLEDevice::createClient();
+  pClient->connect(closestBeacon);
+  BLERemoteService* pRemoteService = pClient->getService(FRI3D_SERVICE_UUID);
+  if (pRemoteService == nullptr) {
+    Serial.print("Failed to find our service FRI3D_SERVICE_UUID");
+    pClient->disconnect();
+    return false;
   }
+  else {
+    Serial.print("service found: ");
+    Serial.println(pRemoteService->toString().c_str());
+  }
+
+  BLERemoteCharacteristic *colorChar = pRemoteService->getCharacteristic(FRI3D_COLOR_UUID);
+  if (colorChar == nullptr) {
+    Serial.println("Failed to find FRI3D_COLOR_UUID");
+  }
+  else {
+    Serial.print("color value = ");
+    Serial.println(colorChar->readValue().c_str());
+  }
+
+  BLERemoteCharacteristic *pushChar = pRemoteService->getCharacteristic(FRI3D_PUSH_UUID);
+  if (pushChar == nullptr) {
+    Serial.println("Failed to find FRI3D_PUSH_UUID");
+  }
+  else {
+    Serial.print("can read? "); Serial.println(pushChar->canRead());
+    Serial.print("can write? "); Serial.println(pushChar->canWrite());
+    Serial.print("can write no response? "); Serial.println(pushChar->canWriteNoResponse());
+    pushChar->writeValue("blue", false);
+  }
+
+  pClient->disconnect();
+  return false;
 }
 
 void loop() {
@@ -52,9 +114,9 @@ void loop() {
   // have detected a new device.
   BLEScan* pBLEScan = BLEDevice::getScan();
   pBLEScan->setAdvertisedDeviceCallbacks(new AgentAdvertisedDeviceCallbacks());
-  pBLEScan->start(5, false);
+  pBLEScan->start(10, false);
 
-  String scanDone = "SCAN COMPLETE CHECK SERIAL MONITOR";
+  if (closestRSSI > -1000) ConnectToBeacon();
   Serial.println(scanDone.c_str());
   int x = -14; //there are 14 columns of LEDs, start at outside
   while(!(buttons.getButton(0) || buttons.getButton(1))) {
