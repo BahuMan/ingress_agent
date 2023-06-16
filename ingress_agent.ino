@@ -1,7 +1,9 @@
-#include "BLEDevice.h"
-//#include "BLEScan.h"
+#include <BLEDevice.h>
+//#include <BLEScan.h>
 #include <Fri3dMatrix.h>
 #include <Fri3dButtons.h>
+
+#include "ingress.h"
 
 Fri3dMatrix matrix = Fri3dMatrix();
 Fri3dButtons buttons = Fri3dButtons();
@@ -13,7 +15,9 @@ static BLEUUID    FRI3D_PUSH_UUID("3ed75c2e-079f-11ee-be56-0242ac120002");
 
 BLEAdvertisedDevice *closestBeacon;
 int closestRSSI = -1000;
-String scanDone = "SCAN COMPLETE CHECK SERIAL MONITOR";
+uint8_t myColor = CAMP_BLUE;
+
+String scanDone = "NOT FOUND";
 
 class AgentAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
   private:
@@ -42,7 +46,7 @@ class AgentAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
     {
       Serial.println(advertisedDevice.getName().c_str());
       if (advertisedDevice.getName().find("Fri3dBaconAdvertised") != std::string::npos) {
-        scanDone = "NAME FOUND";
+        scanDone = "NAME";
         FindClosestBeacon(advertisedDevice);
       }
     }
@@ -50,8 +54,7 @@ class AgentAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
 
     if (advertisedDevice.haveServiceUUID() && advertisedDevice.isAdvertisingService(FRI3D_SERVICE_UUID))
     {
-      scanDone = "SERVICE UUID FOUND";
-      Serial.println("GOTCHA!");
+      scanDone = "SERVICE UUID";
       FindClosestBeacon(advertisedDevice);
     }
 
@@ -102,19 +105,23 @@ bool ConnectToBeacon()
     Serial.print("can read? "); Serial.println(pushChar->canRead());
     Serial.print("can write? "); Serial.println(pushChar->canWrite());
     Serial.print("can write no response? "); Serial.println(pushChar->canWriteNoResponse());
-    pushChar->writeValue("blue", false);
+    uint8_t mijnkamp = CAMP_BLUE;
+    pushChar->writeValue(&mijnkamp, 1);
   }
 
   pClient->disconnect();
   return false;
 }
 
-void loop() {
+void scanAndIntrude() {
+  //first, reset distance so we can try and find closest beacon:
+  closestRSSI = -1000;
+
   // Retrieve a Scanner and set the callback we want to use to be informed when we
   // have detected a new device.
   BLEScan* pBLEScan = BLEDevice::getScan();
   pBLEScan->setAdvertisedDeviceCallbacks(new AgentAdvertisedDeviceCallbacks());
-  pBLEScan->start(10, false);
+  pBLEScan->start(5, false);
 
   if (closestRSSI > -1000) ConnectToBeacon();
   Serial.println(scanDone.c_str());
@@ -126,4 +133,12 @@ void loop() {
     if (x>((int)scanDone.length() * 4)) x=-14;
     delay(100);
   }
+}
+
+void switchColor() {
+
+}
+
+void loop() {
+  scanAndIntrude();
 }
